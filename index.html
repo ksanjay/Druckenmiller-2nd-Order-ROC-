@@ -22,7 +22,7 @@
         // Access React functions globally
         const { useState, useEffect, useMemo } = React;
         
-        // --- INLINED ICONS (Fixes React Error #130) ---
+        // --- INLINED ICONS ---
         const LineChart = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>;
         const ArrowUpCircle = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4"/><path d="M12 16V8"/></svg>;
         const ArrowDownCircle = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16 12-4 4-4-4"/><path d="M12 8v8"/></svg>;
@@ -32,24 +32,29 @@
         const AlertCircle = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>;
         const CheckCircle = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>;
         const Loader2 = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>;
+        const Database = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>;
 
         /**
          * DRUCKENMILLER ROC MODEL IMPLEMENTATION
          */
 
         // --- API CONFIGURATION ---
-        const API_KEY = 'JQQUUJQRAX8TLXSM'; 
-        const BASE_URL = 'https://www.alphavantage.co/query';
+        const ALPHAVANTAGE_KEY = 'JQQUUJQRAX8TLXSM'; 
+        const ALPHAVANTAGE_URL = 'https://www.alphavantage.co/query';
+        
+        const FINNHUB_KEY = 'd22igc9r01qr7ajlkob0d22igc9r01qr7ajlkobg';
+        const FINNHUB_URL = 'https://finnhub.io/api/v1/stock/candle';
 
-        // --- DATA FETCHING ---
-        const fetchStockData = async (ticker) => {
-          try {
+        // --- DATA FETCHING STRATEGIES ---
+
+        // Strategy 1: AlphaVantage (Primary)
+        const fetchAlphaVantage = async (ticker) => {
             const response = await fetch(
-              `${BASE_URL}?function=TIME_SERIES_MONTHLY_ADJUSTED&symbol=${ticker}&apikey=${API_KEY}`
+              `${ALPHAVANTAGE_URL}?function=TIME_SERIES_MONTHLY_ADJUSTED&symbol=${ticker}&apikey=${ALPHAVANTAGE_KEY}`
             );
             const data = await response.json();
 
-            if (data['Note']) throw new Error("API Limit Reached (5 calls/min). Please wait.");
+            if (data['Note']) throw new Error("AlphaVantage Limit Reached");
             if (data['Error Message']) throw new Error("Invalid Ticker Symbol.");
             if (!data['Monthly Adjusted Time Series']) throw new Error("No data found.");
 
@@ -63,10 +68,57 @@
                 price: parseFloat(values['5. adjusted close'])
               });
             }
+            return formattedData;
+        };
 
-            return formattedData.sort((a, b) => a.rawDate - b.rawDate).slice(-48);
-          } catch (err) {
-            throw err;
+        // Strategy 2: Finnhub (Fallback)
+        const fetchFinnhub = async (ticker) => {
+            const to = Math.floor(Date.now() / 1000);
+            const from = to - (5 * 365 * 24 * 60 * 60);
+            
+            // Note: 'resolution=M' for monthly
+            const url = `${FINNHUB_URL}?symbol=${ticker}&resolution=M&from=${from}&to=${to}&token=${FINNHUB_KEY}`;
+            const response = await fetch(url);
+            
+            if (!response.ok) {
+                throw new Error(`Finnhub HTTP Error: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (data.error) throw new Error(`Finnhub API Error: ${data.error}`);
+            if (data.s === 'no_data') throw new Error("No data found in Finnhub.");
+            if (!data.c || !data.t) {
+                console.error("Finnhub Invalid Data:", data);
+                throw new Error("Invalid Finnhub response format");
+            }
+
+            return data.t.map((timestamp, index) => ({
+                rawDate: new Date(timestamp * 1000),
+                date: new Date(timestamp * 1000).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+                price: parseFloat(data.c[index])
+            }));
+        };
+
+        // Main Fetch Controller - STRICT NO SIMULATION
+        const fetchStockData = async (ticker) => {
+          let usedSource = 'AlphaVantage';
+          try {
+            console.log("Attempting AlphaVantage...");
+            const data = await fetchAlphaVantage(ticker);
+            return { data: data.sort((a, b) => a.rawDate - b.rawDate).slice(-48), source: usedSource };
+          } catch (avError) {
+            console.warn("AlphaVantage failed:", avError.message);
+            
+            try {
+                console.log("Attempting Finnhub Fallback...");
+                usedSource = 'Finnhub';
+                const data = await fetchFinnhub(ticker);
+                return { data: data.sort((a, b) => a.rawDate - b.rawDate).slice(-48), source: usedSource };
+            } catch (fhError) {
+                console.warn("Finnhub failed:", fhError.message);
+                throw new Error("All Data Providers Failed. Please try again later.");
+            }
           }
         };
 
@@ -124,7 +176,7 @@
           return { type: 'CAUTION', color: 'orange', text: 'Decelerating' };
         };
 
-        // NEW: Recommendation Helper for Top Banner
+        // Recommendation Helper
         const getRecommendation = (roc2) => {
           if (roc2 === null || roc2 === undefined) return { text: "LOADING...", color: "text-gray-400", bg: "bg-gray-100", border: "border-gray-300" };
           
@@ -134,7 +186,6 @@
           if (roc2 <= -5) {
             return { text: "SELL", color: "text-red-600", bg: "bg-red-100", border: "border-red-500" };
           }
-          // Between -5 and 0
           return { text: "HOLD", color: "text-[#8B4513]", bg: "bg-orange-50", border: "border-[#8B4513]" }; // Brown
         };
 
@@ -205,17 +256,21 @@
           const [category, setCategory] = useState('Tech');
           const [loading, setLoading] = useState(false);
           const [error, setError] = useState(null);
+          const [dataSource, setDataSource] = useState('');
 
           const loadData = async (symbol) => {
             setLoading(true);
             setError(null);
             setMarketData([]);
             setMetrics(null);
+            setDataSource('');
+            
             try {
-              const rawData = await fetchStockData(symbol);
-              const calculated = calculateMetrics(rawData);
+              const { data, source } = await fetchStockData(symbol);
+              const calculated = calculateMetrics(data);
               setMarketData(calculated);
               setMetrics(calculated[calculated.length - 1]);
+              setDataSource(source);
             } catch (err) {
               setError(err.message);
             } finally {
@@ -247,7 +302,9 @@
                       <TrendingUp className="text-emerald-400" />
                       Druckenmiller ROC II Model
                     </h1>
-                    <p className="text-slate-400 text-sm mt-1">Live AlphaVantage Data • Monthly Analysis</p>
+                    <p className="text-slate-400 text-sm mt-1">
+                      Live Data (AlphaVantage/Finnhub) • Monthly Analysis
+                    </p>
                   </div>
                   <form onSubmit={handleSearch} className="flex gap-2 w-full md:w-auto">
                     <input 
@@ -274,7 +331,16 @@
                     <div className="p-6 flex justify-between items-center">
                       <div>
                         <h2 className="text-3xl font-bold text-slate-800">{ticker.toUpperCase()}</h2>
-                        <p className="text-slate-500 text-sm">3-Month Momentum Analysis</p>
+                        <div className="flex items-center gap-2 mt-1">
+                            <span className="text-slate-500 text-sm">3-Month Momentum Analysis</span>
+                            {dataSource && (
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                                    dataSource.includes('Simulation') ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
+                                }`}>
+                                    Source: {dataSource}
+                                </span>
+                            )}
+                        </div>
                       </div>
                       <div className="text-right">
                         <div className={`text-sm font-bold uppercase tracking-widest mb-1 text-${currentSignal.color}-600`}>Model Signal</div>
@@ -329,6 +395,13 @@
                       <div className="bg-slate-50 p-3 text-center border-t border-slate-200">
                         <button onClick={() => {const cats = Object.keys(SECTOR_PICKS); const nextCat = cats[(cats.indexOf(category) + 1) % cats.length]; setCategory(nextCat);}} className="text-xs font-semibold text-slate-500 hover:text-slate-800">Switch Sector Category</button>
                       </div>
+                    </div>
+                    {/* Data Source Info Card */}
+                    <div className="mt-4 bg-slate-100 border border-slate-200 rounded-lg p-3 text-xs text-slate-500 flex items-start gap-2">
+                         <Database size={14} className="shrink-0 mt-0.5" />
+                         <p>
+                             Data Strategy: AlphaVantage (Primary) → Finnhub (Fallback). If both fail, the app will show an error.
+                         </p>
                     </div>
                   </div>
                 </div>
