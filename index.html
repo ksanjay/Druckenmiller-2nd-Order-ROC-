@@ -19,48 +19,96 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        // Access React functions globally
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect } = React;
         
-        // --- INLINED ICONS ---
+        // --- ICONS ---
         const LineChart = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>;
         const ArrowUpCircle = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4"/><path d="M12 16V8"/></svg>;
         const ArrowDownCircle = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16 12-4 4-4-4"/><path d="M12 8v8"/></svg>;
         const Activity = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>;
         const TrendingUp = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>;
-        const Info = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>;
         const AlertCircle = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>;
         const CheckCircle = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>;
         const Loader2 = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>;
         const Database = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>;
-
-        /**
-         * DRUCKENMILLER ROC MODEL IMPLEMENTATION
-         */
+        const Shield = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>;
 
         // --- API CONFIGURATION ---
+        const FMP_KEY = 'zZ5zECyopZEcPtKvkqlb1R52jv2vFusj';
         const ALPHAVANTAGE_KEY = 'JQQUUJQRAX8TLXSM'; 
-        const ALPHAVANTAGE_URL = 'https://www.alphavantage.co/query';
-        
         const FINNHUB_KEY = 'd22igc9r01qr7ajlkob0d22igc9r01qr7ajlkobg';
-        const FINNHUB_URL = 'https://finnhub.io/api/v1/stock/candle';
+        
+        // CORS Proxy to bypass browser security restrictions if direct calls fail
+        const PROXY_URL = 'https://api.allorigins.win/raw?url=';
+
+        // --- HELPER: ROBUST FETCH ---
+        // Tries direct fetch first. If that fails (CORS/Network), tries via Proxy.
+        const robustFetch = async (url, sourceName) => {
+            try {
+                // Attempt 1: Direct
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return await response.json();
+            } catch (directError) {
+                console.warn(`${sourceName} Direct failed (${directError.message}). Trying Proxy...`);
+                
+                // Attempt 2: Via Proxy
+                try {
+                    const proxyResponse = await fetch(`${PROXY_URL}${encodeURIComponent(url)}`);
+                    if (!proxyResponse.ok) throw new Error(`Proxy HTTP ${proxyResponse.status}`);
+                    return await proxyResponse.json();
+                } catch (proxyError) {
+                    throw new Error(`${sourceName} Failed (Direct & Proxy): ${directError.message}`);
+                }
+            }
+        };
 
         // --- DATA FETCHING STRATEGIES ---
 
-        // Strategy 1: AlphaVantage (Primary)
-        const fetchAlphaVantage = async (ticker) => {
-            const response = await fetch(
-              `${ALPHAVANTAGE_URL}?function=TIME_SERIES_MONTHLY_ADJUSTED&symbol=${ticker}&apikey=${ALPHAVANTAGE_KEY}`
-            );
-            const data = await response.json();
+        const fetchFMP = async (ticker) => {
+            const url = `https://financialmodelingprep.com/api/v3/historical-price-full/${ticker}?apikey=${FMP_KEY}`;
+            const data = await robustFetch(url, 'FMP');
+            
+            if (data['Error Message']) throw new Error("FMP API Error: Invalid Ticker or Key");
+            if (!data.historical || data.historical.length === 0) throw new Error("FMP: No historical data");
 
-            if (data['Note']) throw new Error("AlphaVantage Limit Reached");
-            if (data['Error Message']) throw new Error("Invalid Ticker Symbol.");
-            if (!data['Monthly Adjusted Time Series']) throw new Error("No data found.");
+            const historical = data.historical.reverse(); 
+            const monthlyData = [];
+            let currentMonth = null;
+
+            historical.forEach((day, index) => {
+                const date = new Date(day.date);
+                const month = date.getFullYear() + '-' + date.getMonth();
+                if (currentMonth !== null && currentMonth !== month) {
+                    monthlyData.push({
+                        rawDate: new Date(historical[index - 1].date),
+                        date: new Date(historical[index - 1].date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+                        price: parseFloat(historical[index - 1].close)
+                    });
+                }
+                currentMonth = month;
+            });
+            if (historical.length > 0) {
+                 const last = historical[historical.length - 1];
+                 monthlyData.push({
+                    rawDate: new Date(last.date),
+                    date: new Date(last.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+                    price: parseFloat(last.close)
+                });
+            }
+            return monthlyData;
+        };
+
+        const fetchAlphaVantage = async (ticker) => {
+            const url = `https://www.alphavantage.co/query?function=TIME_SERIES_MONTHLY_ADJUSTED&symbol=${ticker}&apikey=${ALPHAVANTAGE_KEY}`;
+            const data = await robustFetch(url, 'AlphaVantage');
+
+            if (data['Note']) throw new Error("AlphaVantage: Rate Limit Reached");
+            if (data['Error Message']) throw new Error("AlphaVantage: Invalid Ticker");
+            if (!data['Monthly Adjusted Time Series']) throw new Error("AlphaVantage: No data");
 
             const timeSeries = data['Monthly Adjusted Time Series'];
             const formattedData = [];
-
             for (const [date, values] of Object.entries(timeSeries)) {
               formattedData.push({
                 rawDate: new Date(date),
@@ -71,180 +119,21 @@
             return formattedData;
         };
 
-        // Strategy 2: Finnhub (Fallback)
         const fetchFinnhub = async (ticker) => {
             const to = Math.floor(Date.now() / 1000);
-            const from = to - (5 * 365 * 24 * 60 * 60);
+            const from = to - (4 * 365 * 24 * 60 * 60); // 4 years
+            const url = `https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=M&from=${from}&to=${to}&token=${FINNHUB_KEY}`;
+            const data = await robustFetch(url, 'Finnhub');
             
-            // Note: 'resolution=M' for monthly
-            const url = `${FINNHUB_URL}?symbol=${ticker}&resolution=M&from=${from}&to=${to}&token=${FINNHUB_KEY}`;
-            const response = await fetch(url);
-            
-            if (!response.ok) {
-                throw new Error(`Finnhub HTTP Error: ${response.status}`);
-            }
-
-            const data = await response.json();
-
-            if (data.error) throw new Error(`Finnhub API Error: ${data.error}`);
-            if (data.s === 'no_data') throw new Error("No data found in Finnhub.");
-            if (!data.c || !data.t) {
-                console.error("Finnhub Invalid Data:", data);
-                throw new Error("Invalid Finnhub response format");
-            }
+            if (data.s === 'no_data') throw new Error("Finnhub: No Data");
+            if (data.error) throw new Error(`Finnhub: ${data.error}`);
+            if (!data.c || !data.t) throw new Error("Finnhub: Invalid Format");
 
             return data.t.map((timestamp, index) => ({
                 rawDate: new Date(timestamp * 1000),
                 date: new Date(timestamp * 1000).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
                 price: parseFloat(data.c[index])
             }));
-        };
-
-        // Main Fetch Controller - STRICT NO SIMULATION
-        const fetchStockData = async (ticker) => {
-          let usedSource = 'AlphaVantage';
-          try {
-            console.log("Attempting AlphaVantage...");
-            const data = await fetchAlphaVantage(ticker);
-            return { data: data.sort((a, b) => a.rawDate - b.rawDate).slice(-48), source: usedSource };
-          } catch (avError) {
-            console.warn("AlphaVantage failed:", avError.message);
-            
-            try {
-                console.log("Attempting Finnhub Fallback...");
-                usedSource = 'Finnhub';
-                const data = await fetchFinnhub(ticker);
-                return { data: data.sort((a, b) => a.rawDate - b.rawDate).slice(-48), source: usedSource };
-            } catch (fhError) {
-                console.warn("Finnhub failed:", fhError.message);
-                throw new Error("All Data Providers Failed. Please try again later.");
-            }
-          }
-        };
-
-        // --- ALTERNATE STOCK DATA ---
-        const SECTOR_PICKS = {
-          'Tech': [
-            { symbol: 'GOOGL', name: 'Alphabet Inc.', roc2: 6.2, price: 178.20, signal: 'BUY' },
-            { symbol: 'META', name: 'Meta Platforms', roc2: 8.4, price: 485.10, signal: 'STRONG BUY' },
-            { symbol: 'MSFT', name: 'Microsoft', roc2: 2.1, price: 415.00, signal: 'BUY' },
-            { symbol: 'CPNG', name: 'Coupang', roc2: 5.5, price: 21.50, signal: 'BUY' },
-            { symbol: 'MELI', name: 'MercadoLibre', roc2: 7.1, price: 1650.00, signal: 'STRONG BUY' },
-          ],
-          'Healthcare': [
-            { symbol: 'NTRA', name: 'Natera Inc.', roc2: 12.5, price: 115.40, signal: 'STRONG BUY' },
-            { symbol: 'INSM', name: 'Insmed Inc.', roc2: 9.3, price: 72.10, signal: 'STRONG BUY' },
-            { symbol: 'TEVA', name: 'Teva Pharm', roc2: 4.2, price: 18.20, signal: 'BUY' },
-            { symbol: 'VRNA', name: 'Verona Pharma', roc2: 3.8, price: 34.50, signal: 'BUY' },
-            { symbol: 'LLY', name: 'Eli Lilly', roc2: 1.5, price: 780.00, signal: 'HOLD' },
-          ],
-          'Industrials': [
-            { symbol: 'WAB', name: 'Westinghouse Air', roc2: 5.1, price: 168.00, signal: 'BUY' },
-            { symbol: 'ETN', name: 'Eaton Corp', roc2: 2.3, price: 320.00, signal: 'BUY' },
-            { symbol: 'PH', name: 'Parker-Hannifin', roc2: 1.8, price: 540.00, signal: 'HOLD' },
-            { symbol: 'GE', name: 'GE Aerospace', roc2: 4.5, price: 160.00, signal: 'BUY' },
-            { symbol: 'CAT', name: 'Caterpillar', roc2: -1.2, price: 350.00, signal: 'HOLD' },
-          ]
-        };
-
-        // --- CALCULATIONS ---
-        const calculateMetrics = (data) => {
-          const lookback = 3;
-          return data.map((point, i) => {
-            let roc1 = null;
-            let roc2 = null;
-
-            if (i >= lookback) {
-              const pastPrice = data[i - lookback].price;
-              roc1 = ((point.price - pastPrice) / pastPrice) * 100;
-            }
-
-            if (i >= lookback + 1 && roc1 !== null) {
-              const prevRoc1 = ((data[i-1].price - data[i-1-lookback].price) / data[i-1-lookback].price) * 100;
-              roc2 = roc1 - prevRoc1;
-            }
-
-            return { ...point, roc1, roc2 };
-          });
-        };
-
-        const getSignal = (roc2) => {
-          if (roc2 === null) return { type: 'WAIT', color: 'gray', text: 'Insufficient Data' };
-          if (roc2 >= 5) return { type: 'STRONG_BUY', color: 'green', text: 'Strong Acceleration' };
-          if (roc2 > 0) return { type: 'BUY', color: 'emerald', text: 'Accelerating' };
-          if (roc2 <= -5) return { type: 'TRIM', color: 'red', text: 'Strong Deceleration' };
-          return { type: 'CAUTION', color: 'orange', text: 'Decelerating' };
-        };
-
-        // Recommendation Helper
-        const getRecommendation = (roc2) => {
-          if (roc2 === null || roc2 === undefined) return { text: "LOADING...", color: "text-gray-400", bg: "bg-gray-100", border: "border-gray-300" };
-          
-          if (roc2 > 0) {
-            return { text: "BUY", color: "text-green-700", bg: "bg-green-100", border: "border-green-500" };
-          }
-          if (roc2 <= -5) {
-            return { text: "SELL", color: "text-red-600", bg: "bg-red-100", border: "border-red-500" };
-          }
-          return { text: "HOLD", color: "text-[#8B4513]", bg: "bg-orange-50", border: "border-[#8B4513]" }; // Brown
-        };
-
-        // --- COMPONENTS ---
-        const ChartPanel = ({ data, title, color, yKey, zeroLine = false }) => {
-          if (!data || data.length === 0) return null;
-
-          const validData = data.filter(d => d[yKey] !== null);
-          const width = 600;
-          const height = 150;
-          const padding = 20;
-
-          const maxVal = Math.max(...validData.map(d => d[yKey]));
-          const minVal = Math.min(...validData.map(d => d[yKey]));
-          const range = maxVal - minVal || 1;
-
-          const points = validData.map((d, i) => {
-            const x = padding + (i / (validData.length - 1)) * (width - 2 * padding);
-            const y = height - padding - ((d[yKey] - minVal) / range) * (height - 2 * padding);
-            return `${x},${y}`;
-          }).join(' ');
-
-          const zeroY = zeroLine 
-            ? height - padding - ((0 - minVal) / range) * (height - 2 * padding)
-            : null;
-
-          return (
-            <div className="mb-6 bg-white rounded-lg shadow-sm border border-slate-200 p-4">
-              <div className="flex justify-between items-center mb-2">
-                <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wider">{title}</h3>
-                <span className="text-xs text-slate-400">Last 3 Years (Monthly)</span>
-              </div>
-              <div className="relative w-full h-40">
-                <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
-                  <line x1={padding} y1={padding} x2={padding} y2={height-padding} stroke="#e2e8f0" strokeWidth="1" />
-                  <line x1={padding} y1={height-padding} x2={width-padding} y2={height-padding} stroke="#e2e8f0" strokeWidth="1" />
-                  {zeroLine && zeroY >= padding && zeroY <= height - padding && (
-                    <line x1={padding} y1={zeroY} x2={width-padding} y2={zeroY} stroke="#94a3b8" strokeWidth="1" strokeDasharray="4 4" />
-                  )}
-                  {title.includes("Acceleration") && validData.map((d, i) => {
-                    if (i === 0) return null;
-                    const x2 = padding + (i / (validData.length - 1)) * (width - 2 * padding);
-                    const y2 = height - padding - ((d[yKey] - minVal) / range) * (height - 2 * padding);
-                    const barColor = d[yKey] >= 0 ? '#10b981' : '#ef4444';
-                    return (
-                      <rect key={i} x={x2 - 2} y={d[yKey] >= 0 ? y2 : zeroY} width={4} height={Math.abs(y2 - zeroY)} fill={barColor} opacity="0.6"/>
-                    );
-                  })}
-                  <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <circle cx={padding + (width - 2 * padding)} cy={height - padding - ((validData[validData.length-1][yKey] - minVal) / range) * (height - 2 * padding)} r="4" fill={color} stroke="white" strokeWidth="2"/>
-                </svg>
-              </div>
-              <div className="flex justify-between text-xs text-slate-500 mt-2">
-                <span>{validData[0].date}</span>
-                <span className="font-bold text-slate-800">Current: {validData[validData.length-1][yKey].toFixed(2)}{title.includes("Price") ? '' : '%'}</span>
-                <span>{validData[validData.length-1].date}</span>
-              </div>
-            </div>
-          );
         };
 
         // --- MAIN APP COMPONENT ---
@@ -256,31 +145,81 @@
           const [category, setCategory] = useState('Tech');
           const [loading, setLoading] = useState(false);
           const [error, setError] = useState(null);
+          const [errorDetails, setErrorDetails] = useState([]);
           const [dataSource, setDataSource] = useState('');
 
           const loadData = async (symbol) => {
             setLoading(true);
             setError(null);
+            setErrorDetails([]);
             setMarketData([]);
             setMetrics(null);
             setDataSource('');
             
+            const failures = [];
+
+            // 1. Try FMP (Direct or Proxy)
             try {
-              const { data, source } = await fetchStockData(symbol);
-              const calculated = calculateMetrics(data);
-              setMarketData(calculated);
-              setMetrics(calculated[calculated.length - 1]);
-              setDataSource(source);
-            } catch (err) {
-              setError(err.message);
-            } finally {
-              setLoading(false);
+                const data = await fetchFMP(symbol);
+                processData(data, 'FMP (Primary)');
+                setLoading(false);
+                return;
+            } catch (e) {
+                console.warn(e);
+                failures.push(`FMP: ${e.message}`);
             }
+
+            // 2. Try AlphaVantage (Direct or Proxy)
+            try {
+                const data = await fetchAlphaVantage(symbol);
+                processData(data, 'AlphaVantage (Backup)');
+                setLoading(false);
+                return;
+            } catch (e) {
+                console.warn(e);
+                failures.push(`AlphaVantage: ${e.message}`);
+            }
+
+            // 3. Try Finnhub (Direct or Proxy)
+            try {
+                const data = await fetchFinnhub(symbol);
+                processData(data, 'Finnhub (Fallback)');
+                setLoading(false);
+                return;
+            } catch (e) {
+                console.warn(e);
+                failures.push(`Finnhub: ${e.message}`);
+            }
+
+            // All Failed
+            setError("All Data Providers Failed");
+            setErrorDetails(failures);
+            setLoading(false);
           };
 
-          useEffect(() => {
-            loadData(ticker);
-          }, [ticker]);
+          const processData = (data, source) => {
+             const sorted = data.sort((a, b) => a.rawDate - b.rawDate).slice(-48);
+             
+             // Calculate Metrics
+             const calculated = sorted.map((point, i) => {
+                let roc1 = null, roc2 = null;
+                if (i >= 3) {
+                  const pastPrice = sorted[i - 3].price;
+                  roc1 = ((point.price - pastPrice) / pastPrice) * 100;
+                }
+                if (i >= 4 && roc1 !== null) {
+                  const prevRoc1 = ((sorted[i-1].price - sorted[i-4].price) / sorted[i-4].price) * 100;
+                  roc2 = roc1 - prevRoc1;
+                }
+                return { ...point, roc1, roc2 };
+             });
+
+             setMarketData(calculated);
+             setMetrics(calculated[calculated.length - 1]);
+             setDataSource(source);
+          };
+
+          useEffect(() => { loadData(ticker); }, [ticker]);
 
           const handleSearch = (e) => {
             e.preventDefault();
@@ -290,122 +229,187 @@
             }
           };
 
-          const currentSignal = metrics ? getSignal(metrics.roc2) : { type: 'WAIT', color: 'gray', text: 'Loading...' };
+          const getSignal = (roc2) => {
+             if (roc2 === null) return { text: 'WAIT', color: 'gray' };
+             if (roc2 >= 5) return { text: 'Strong Acceleration', color: 'green' };
+             if (roc2 > 0) return { text: 'Accelerating', color: 'emerald' };
+             if (roc2 <= -5) return { text: 'Strong Deceleration', color: 'red' };
+             return { text: 'Decelerating', color: 'orange' };
+          };
+
+          const getRecommendation = (roc2) => {
+             if (roc2 === null) return { text: "LOADING...", color: "text-gray-400", bg: "bg-gray-100", border: "border-gray-300" };
+             if (roc2 > 0) return { text: "BUY", color: "text-green-700", bg: "bg-green-100", border: "border-green-500" };
+             if (roc2 <= -5) return { text: "SELL", color: "text-red-600", bg: "bg-red-100", border: "border-red-500" };
+             return { text: "HOLD", color: "text-[#8B4513]", bg: "bg-orange-50", border: "border-[#8B4513]" };
+          };
+
+          const currentSignal = metrics ? getSignal(metrics.roc2) : { text: 'Loading...', color: 'gray' };
           const recommendation = metrics ? getRecommendation(metrics.roc2) : getRecommendation(null);
+
+          // --- CHART COMPONENT ---
+          const ChartPanel = ({ data, title, color, yKey, zeroLine }) => {
+            if (!data || data.length === 0) return null;
+            const valid = data.filter(d => d[yKey] !== null);
+            const width = 600, height = 150, padding = 20;
+            const min = Math.min(...valid.map(d => d[yKey])), max = Math.max(...valid.map(d => d[yKey]));
+            const range = max - min || 1;
+
+            const points = valid.map((d, i) => {
+               const x = padding + (i / (valid.length - 1)) * (width - 2 * padding);
+               const y = height - padding - ((d[yKey] - min) / range) * (height - 2 * padding);
+               return `${x},${y}`;
+            }).join(' ');
+            
+            const zeroY = zeroLine ? height - padding - ((0 - min) / range) * (height - 2 * padding) : null;
+
+            return (
+              <div className="mb-6 bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+                 <div className="flex justify-between items-center mb-2"><h3 className="text-sm font-semibold text-slate-600 uppercase">{title}</h3></div>
+                 <div className="relative w-full h-40">
+                   <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
+                      <line x1={padding} y1={padding} x2={padding} y2={height-padding} stroke="#e2e8f0" />
+                      <line x1={padding} y1={height-padding} x2={width-padding} y2={height-padding} stroke="#e2e8f0" />
+                      {zeroLine && <line x1={padding} y1={zeroY} x2={width-padding} y2={zeroY} stroke="#94a3b8" strokeDasharray="4 4" />}
+                      
+                      {/* Bars for 2nd ROC */}
+                      {title.includes("Acceleration") && valid.map((d, i) => {
+                         if (i===0) return null;
+                         const x = padding + (i / (valid.length - 1)) * (width - 2 * padding);
+                         const y = height - padding - ((d[yKey] - min) / range) * (height - 2 * padding);
+                         const barH = Math.abs(y - zeroY);
+                         return <rect key={i} x={x-2} y={d[yKey]>=0 ? y : zeroY} width={4} height={barH} fill={d[yKey]>=0?'#10b981':'#ef4444'} opacity="0.6" />;
+                      })}
+
+                      <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                   </svg>
+                 </div>
+                 <div className="flex justify-between text-xs text-slate-500 mt-2">
+                    <span>{valid[0].date}</span>
+                    <span className="font-bold text-slate-800">Current: {valid[valid.length-1][yKey].toFixed(2)}</span>
+                    <span>{valid[valid.length-1].date}</span>
+                 </div>
+              </div>
+            );
+          };
+
+          const SECTOR_PICKS = {
+             'Tech': [
+                { symbol: 'GOOGL', name: 'Alphabet Inc.', roc2: 6.2, signal: 'BUY' },
+                { symbol: 'META', name: 'Meta Platforms', roc2: 8.4, signal: 'STRONG BUY' },
+                { symbol: 'MSFT', name: 'Microsoft', roc2: 2.1, signal: 'BUY' },
+             ],
+             'Healthcare': [
+                { symbol: 'NTRA', name: 'Natera Inc.', roc2: 12.5, signal: 'STRONG BUY' },
+                { symbol: 'INSM', name: 'Insmed Inc.', roc2: 9.3, signal: 'STRONG BUY' },
+             ]
+          };
 
           return (
             <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-              <header className="bg-slate-900 text-white p-6 shadow-lg">
-                <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center">
-                  <div className="mb-4 md:mb-0">
-                    <h1 className="text-2xl font-bold flex items-center gap-2">
-                      <TrendingUp className="text-emerald-400" />
-                      Druckenmiller ROC II Model
-                    </h1>
-                    <p className="text-slate-400 text-sm mt-1">
-                      Live Data (AlphaVantage/Finnhub) • Monthly Analysis
-                    </p>
+               <header className="bg-slate-900 text-white p-6 shadow-lg">
+                  <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center">
+                     <div>
+                        <h1 className="text-2xl font-bold flex items-center gap-2">
+                           <TrendingUp className="text-emerald-400" /> Druckenmiller ROC II
+                        </h1>
+                        <p className="text-slate-400 text-sm mt-1">Live Data • FMP / AV / Finnhub</p>
+                     </div>
+                     <form onSubmit={handleSearch} className="flex gap-2 w-full md:w-auto mt-4 md:mt-0">
+                        <input type="text" placeholder="Symbol (e.g. AMZN)" className="px-4 py-2 rounded bg-slate-800 border border-slate-700 text-white w-full" value={inputTicker} onChange={(e)=>setInputTicker(e.target.value)} />
+                        <button type="submit" className="bg-emerald-600 px-6 py-2 rounded font-semibold">Analyze</button>
+                     </form>
                   </div>
-                  <form onSubmit={handleSearch} className="flex gap-2 w-full md:w-auto">
-                    <input 
-                      type="text" placeholder="Enter Symbol (e.g. AMZN)" className="px-4 py-2 rounded bg-slate-800 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 w-full"
-                      value={inputTicker} onChange={(e) => setInputTicker(e.target.value)}
-                    />
-                    <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 px-6 py-2 rounded font-semibold transition">Analyze</button>
-                  </form>
-                </div>
-              </header>
-              <main className="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
-                
-                {/* NEW: RECOMMENDATION BANNER */}
-                <div className={`col-span-1 lg:col-span-3 rounded-xl p-4 text-center border-4 shadow-sm ${recommendation.bg} ${recommendation.border}`}>
-                    <div className="text-sm font-bold text-slate-600 uppercase tracking-widest mb-1">RECOMMENDATION</div>
-                    <div className={`text-5xl font-black tracking-wider ${recommendation.color}`}>
-                        {error ? "ERROR" : (loading ? "LOADING..." : recommendation.text)}
-                    </div>
-                </div>
+               </header>
 
-                <div className="lg:col-span-2 space-y-6">
-                  <div className="bg-white rounded-xl shadow-md overflow-hidden border-l-8 transition-colors duration-500" 
-                       style={{ borderLeftColor: error ? '#ef4444' : (currentSignal.color === 'green' ? '#10b981' : currentSignal.color === 'emerald' ? '#34d399' : currentSignal.color === 'gray' ? '#94a3b8' : '#ef4444') }}>
-                    <div className="p-6 flex justify-between items-center">
-                      <div>
-                        <h2 className="text-3xl font-bold text-slate-800">{ticker.toUpperCase()}</h2>
-                        <div className="flex items-center gap-2 mt-1">
-                            <span className="text-slate-500 text-sm">3-Month Momentum Analysis</span>
-                            {dataSource && (
-                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                                    dataSource.includes('Simulation') ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
-                                }`}>
-                                    Source: {dataSource}
-                                </span>
-                            )}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className={`text-sm font-bold uppercase tracking-widest mb-1 text-${currentSignal.color}-600`}>Model Signal</div>
-                        <div className="text-2xl font-bold flex justify-end items-center gap-2">
-                          {loading && <Loader2 className="animate-spin text-slate-400" />}
-                          {!loading && !error && (
-                            <span className={`text-${currentSignal.color === 'emerald' ? 'emerald-500' : currentSignal.color === 'green' ? 'green-600' : currentSignal.color === 'gray' ? 'slate-400' : 'red-500'}`}>{currentSignal.text}</span>
-                          )}
-                          {error && <span className="text-red-500 text-xl">Error</span>}
-                        </div>
-                      </div>
-                    </div>
-                    {error && (
-                      <div className="bg-red-50 p-4 text-red-700 text-sm border-t border-red-100 flex items-center gap-2"><AlertCircle size={16} />{error}</div>
-                    )}
-                    {!loading && !error && metrics && (
-                      <div className="bg-slate-50 px-6 py-4 grid grid-cols-3 gap-4 border-t border-slate-100">
-                        <div><span className="text-xs text-slate-500 uppercase font-semibold">Price</span><div className="text-xl font-bold">${metrics?.price?.toFixed(2)}</div></div>
-                        <div><span className="text-xs text-slate-500 uppercase font-semibold">Velocity (ROC)</span><div className={`text-xl font-bold flex items-center gap-1 ${metrics?.roc1 >= 0 ? 'text-green-600' : 'text-red-600'}`}>{metrics?.roc1 > 0 ? <ArrowUpCircle size={16} /> : <ArrowDownCircle size={16} />}{metrics?.roc1?.toFixed(2)}%</div></div>
-                        <div><span className="text-xs text-slate-500 uppercase font-semibold">Acceleration (2nd ROC)</span><div className={`text-xl font-bold flex items-center gap-1 ${metrics?.roc2 >= 0 ? 'text-green-600' : 'text-red-600'}`}><Activity size={16} />{metrics?.roc2?.toFixed(2)}</div></div>
-                      </div>
-                    )}
+               <main className="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  {/* Banner */}
+                  <div className={`col-span-1 lg:col-span-3 rounded-xl p-4 text-center border-4 shadow-sm ${recommendation.bg} ${recommendation.border}`}>
+                     <div className="text-sm font-bold text-slate-600 uppercase tracking-widest mb-1">RECOMMENDATION</div>
+                     <div className={`text-5xl font-black tracking-wider ${recommendation.color}`}>
+                        {error ? "ERROR" : (loading ? "LOADING..." : recommendation.text)}
+                     </div>
                   </div>
-                  <div className="space-y-4">
-                    <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2"><LineChart className="text-slate-500" />Trend Visualization</h3>
-                    <ChartPanel data={marketData} title="Price Action (Monthly)" color="#334155" yKey="price" />
-                    <ChartPanel data={marketData} title="Velocity: 1st Order ROC (3-Month)" color="#3b82f6" yKey="roc1" zeroLine={true} />
-                    <ChartPanel data={marketData} title="Acceleration: 2nd Order ROC (The 'Signal')" color="#8b5cf6" yKey="roc2" zeroLine={true} />
-                  </div>
-                </div>
-                <div className="lg:col-span-1">
-                  <div className="sticky top-6">
-                    <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
-                      <div className="bg-slate-50 p-4 border-b border-slate-200">
-                        <h3 className="font-bold text-slate-800 flex items-center gap-2"><CheckCircle size={18} className="text-emerald-600" />Top Picks: {category}</h3>
-                        <p className="text-xs text-slate-500 mt-1">Stocks in this sector with strong positive 2nd Order ROC.</p>
-                      </div>
-                      <div className="divide-y divide-slate-100">
-                        {SECTOR_PICKS[category] ? SECTOR_PICKS[category].map((stock) => (
-                          <div key={stock.symbol} className="p-4 hover:bg-slate-50 transition cursor-pointer group" onClick={() => setTicker(stock.symbol)}>
-                            <div className="flex justify-between items-start mb-1">
+
+                  {/* Left Col */}
+                  <div className="lg:col-span-2 space-y-6">
+                     {error ? (
+                        <div className="bg-red-50 border-l-4 border-red-500 p-4">
+                           <div className="flex items-center gap-2 text-red-700 font-bold mb-2">
+                              <AlertCircle /> Connection Failed
+                           </div>
+                           <p className="text-sm text-red-600 mb-4">We tried all 3 data providers. Both direct and proxy connections failed.</p>
+                           <ul className="list-disc pl-5 text-xs text-red-500 space-y-1 mb-4">
+                              {errorDetails.map((msg, i) => <li key={i}>{msg}</li>)}
+                           </ul>
+                           <button onClick={() => loadData(ticker)} className="bg-red-100 hover:bg-red-200 text-red-800 px-4 py-2 rounded text-sm font-semibold transition">
+                              Retry Connection
+                           </button>
+                        </div>
+                     ) : (
+                        <div className="bg-white rounded-xl shadow-md overflow-hidden border-l-8" style={{ borderLeftColor: currentSignal.color === 'green' || currentSignal.color === 'emerald' ? '#10b981' : '#ef4444' }}>
+                           <div className="p-6 flex justify-between items-center">
                               <div>
-                                <div className="font-bold text-slate-900 group-hover:text-emerald-600 transition">{stock.symbol}</div>
-                                <div className="text-xs text-slate-500">{stock.name}</div>
+                                 <h2 className="text-3xl font-bold text-slate-800">{ticker.toUpperCase()}</h2>
+                                 <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-slate-500 text-sm">3-Month Momentum</span>
+                                    {dataSource && (
+                                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${dataSource.includes('FMP') ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
+                                          Source: {dataSource}
+                                          <Shield size={10} className="inline ml-1 mb-0.5" />
+                                       </span>
+                                    )}
+                                 </div>
                               </div>
-                              <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${stock.signal.includes('STRONG') ? 'bg-emerald-100 text-emerald-700' : 'bg-green-100 text-green-700'}`}>{stock.signal}</span>
-                            </div>
-                            <div className="flex justify-between items-center mt-2 text-sm"><span className="text-slate-400">2nd ROC:</span><span className="font-mono font-semibold text-emerald-600">+{stock.roc2}</span></div>
-                          </div>
-                        )) : <div className="p-6 text-center text-slate-400 text-sm">No recommendations available.</div>}
-                      </div>
-                      <div className="bg-slate-50 p-3 text-center border-t border-slate-200">
-                        <button onClick={() => {const cats = Object.keys(SECTOR_PICKS); const nextCat = cats[(cats.indexOf(category) + 1) % cats.length]; setCategory(nextCat);}} className="text-xs font-semibold text-slate-500 hover:text-slate-800">Switch Sector Category</button>
-                      </div>
-                    </div>
-                    {/* Data Source Info Card */}
-                    <div className="mt-4 bg-slate-100 border border-slate-200 rounded-lg p-3 text-xs text-slate-500 flex items-start gap-2">
+                              <div className="text-right">
+                                 <div className="text-sm font-bold uppercase tracking-widest text-slate-500">Signal</div>
+                                 <div className={`text-2xl font-bold text-${currentSignal.color}-600`}>{currentSignal.text}</div>
+                              </div>
+                           </div>
+                           {/* Metrics */}
+                           {metrics && (
+                             <div className="bg-slate-50 px-6 py-4 grid grid-cols-3 gap-4 border-t border-slate-100">
+                               <div><div className="text-xs text-slate-500 uppercase font-semibold">Price</div><div className="text-xl font-bold">${metrics.price.toFixed(2)}</div></div>
+                               <div><div className="text-xs text-slate-500 uppercase font-semibold">Velocity</div><div className="text-xl font-bold">{metrics.roc1.toFixed(2)}%</div></div>
+                               <div><div className="text-xs text-slate-500 uppercase font-semibold">Acceleration</div><div className="text-xl font-bold">{metrics.roc2.toFixed(2)}</div></div>
+                             </div>
+                           )}
+                        </div>
+                     )}
+
+                     {!error && !loading && (
+                        <div className="space-y-4">
+                           <ChartPanel data={marketData} title="Price Action" color="#334155" yKey="price" />
+                           <ChartPanel data={marketData} title="Velocity (ROC)" color="#3b82f6" yKey="roc1" zeroLine={true} />
+                           <ChartPanel data={marketData} title="Acceleration (2nd ROC)" color="#8b5cf6" yKey="roc2" zeroLine={true} />
+                        </div>
+                     )}
+                  </div>
+
+                  {/* Right Col */}
+                  <div className="lg:col-span-1">
+                     <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
+                        <div className="bg-slate-50 p-4 border-b border-slate-200">
+                           <h3 className="font-bold text-slate-800 flex items-center gap-2"><CheckCircle size={18} className="text-emerald-600"/> Top Picks</h3>
+                        </div>
+                        <div className="divide-y divide-slate-100">
+                           {SECTOR_PICKS[category].map(s => (
+                              <div key={s.symbol} onClick={()=>setTicker(s.symbol)} className="p-4 hover:bg-slate-50 cursor-pointer flex justify-between items-center">
+                                 <div><div className="font-bold text-slate-900">{s.symbol}</div><div className="text-xs text-slate-500">{s.name}</div></div>
+                                 <div className="text-right"><div className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-1 rounded">{s.signal}</div><div className="text-xs font-mono text-emerald-600 mt-1">+{s.roc2}</div></div>
+                              </div>
+                           ))}
+                        </div>
+                     </div>
+                     {/* Data Source Info Card */}
+                     <div className="mt-4 bg-slate-100 border border-slate-200 rounded-lg p-3 text-xs text-slate-500 flex items-start gap-2">
                          <Database size={14} className="shrink-0 mt-0.5" />
                          <p>
-                             Data Strategy: AlphaVantage (Primary) → Finnhub (Fallback). If both fail, the app will show an error.
+                             Strategy: FMP (Primary) → AlphaVantage → Finnhub. Uses CORS Proxy if direct connection is blocked by browser.
                          </p>
                     </div>
                   </div>
-                </div>
-              </main>
+               </main>
             </div>
           );
         };
